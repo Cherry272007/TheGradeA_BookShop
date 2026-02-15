@@ -191,4 +191,27 @@ class BookController extends Controller
             'message' => 'Book permanently deleted successfully'
         ], 200);
     }
+
+
+    public function SearchFilter(Request $request)
+{
+    $query = Book::query();
+
+    // ស្វែងរកតាមឈ្មោះសៀវភៅ
+    if ($request->has('search')) {
+        $query->where('title', 'like', '%' . $request->search . '%');
+    }
+
+    // ចម្រាញ់តាមប្រភេទ (Category)
+    if ($request->has('category_id')) {
+        $query->where('category_id', $request->category_id);
+    }
+
+    // ចម្រាញ់តាមតម្លៃ (Price Range)
+    if ($request->has('min_price')) {
+        $query->where('price', '>=', $request->min_price);
+    }
+
+    return $query->paginate(10); // ប្រើ Paginate ដើម្បីកុំឱ្យទិន្នន័យមកច្រើនពេកនាំឱ្យយឺត
+}
 }

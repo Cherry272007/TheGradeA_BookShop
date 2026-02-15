@@ -18,6 +18,8 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::get('/categories', [CategoryController::class, 'index'])->name('categories.index');
 Route::get('/books/{id}',[BookController::class,'show'])->name('books.single_show');
 Route::get('/books',[BookController::class,'index'])->name('books.index');
+
+Route::get('/books', [BookController::class, 'SearchFilter'])->name('books.search_filter');
 /*
 |--------------------------------------------------------------------------
 | Protected Routes (Requires Sanctum Token)
