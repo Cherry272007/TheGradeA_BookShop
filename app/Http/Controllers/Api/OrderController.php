@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
@@ -8,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use App\Services\TelegramService; // ✅ ADD THIS
 
 class OrderController extends Controller
 {
@@ -16,7 +18,8 @@ class OrderController extends Controller
      */
     public function index(Request $request)
     {
-        $orders = Order::with('items.book')->where('user_id', $request->user()->id)
+        $orders = Order::with('items.book')
+            ->where('user_id', $request->user()->id)
             ->latest()
             ->paginate(10);
 
@@ -46,13 +49,14 @@ class OrderController extends Controller
 
         try {
             return DB::transaction(function () use ($request) {
+
                 $subtotal = 0;
                 $orderItemsData = [];
 
-                // 1. Validate Stock and Prepare Items
+                // 1. Validate stock & prepare items
                 foreach ($request->items as $item) {
                     $book = Book::lockForUpdate()->findOrFail($item['id']);
-                    
+
                     if ($book->stock < $item['qty']) {
                         throw new \Exception("Book '{$book->title}' is out of stock.");
                     }
@@ -64,15 +68,16 @@ class OrderController extends Controller
                         'book_id'  => $book->id,
                         'quantity' => $item['qty'],
                         'price'    => $itemPrice,
-                        // 'subtotal' is handled by the OrderItem Model's booted() method!
+                        // subtotal auto-calculated in model
                     ];
 
-                    // 2. Reduce stock
+                    // Reduce stock
                     $book->decrement('stock', $item['qty']);
                 }
 
-                // 3. Create the Order
-                $shippingFee = 5.00;
+                // 2. Create order
+                $shippingFee = 1.38;
+
                 $order = Order::create([
                     'user_id'        => $request->user()->id,
                     'order_number'   => 'ORD-' . strtoupper(Str::random(10)),
@@ -88,15 +93,22 @@ class OrderController extends Controller
                     'order_date'     => now(),
                 ]);
 
-                // 4. Create Order Items
+                // 3. Create order items
                 $order->items()->createMany($orderItemsData);
+
+                // ✅ 4. LOAD RELATIONSHIPS (VERY IMPORTANT)
+                $order->load('items.book', 'user');
+
+                // ✅ 5. SEND TELEGRAM (AFTER EVERYTHING IS READY)
+                TelegramService::sendOrder($order);
 
                 return response()->json([
                     'success' => true,
                     'message' => 'Order placed successfully',
-                    'order'   => $order->load('items.book')
+                    'order'   => $order
                 ], 201);
             });
+
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -106,7 +118,7 @@ class OrderController extends Controller
     }
 
     /**
-     * Display the specified order with its books.
+     * Display the specified order
      */
     public function show($id, Request $request)
     {
@@ -121,41 +133,44 @@ class OrderController extends Controller
     }
 
     /**
- * Admin: View all orders from all customers
- */
-public function adminIndex()
-{
-    $orders = Order::with(['user', 'items'])
-        ->latest()
-        ->paginate(15);
+     * Admin: View all orders
+     */
+    public function adminIndex()
+    {
+        $orders = Order::with(['user', 'items.book']) // ✅ FIXED
+            ->latest()
+            ->paginate(15);
 
-    return response()->json([
-        'success' => true,
-        'data' => $orders
-    ]);
-}
-
-/**
- * Admin: Change order or payment status
- */
-public function updateStatus(Request $request, $id)
-{
-    $validator = Validator::make($request->all(), [
-        'status'         => 'sometimes|in:pending,processing,shipped,completed,cancelled',
-        'payment_status' => 'sometimes|in:paid,unpaid',
-    ]);
-
-    if ($validator->fails()) {
-        return response()->json(['errors' => $validator->errors()], 422);
+        return response()->json([
+            'success' => true,
+            'data' => $orders
+        ]);
     }
 
-    $order = Order::findOrFail($id);
-    $order->update($request->only(['status', 'payment_status']));
+    /**
+     * Admin: Update order status
+     */
+    public function updateStatus(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'status'         => 'sometimes|in:pending,processing,shipped,completed,cancelled',
+            'payment_status' => 'sometimes|in:paid,unpaid',
+        ]);
 
-    return response()->json([
-        'success' => true,
-        'message' => 'Order updated successfully',
-        'data'    => $order
-    ]);
-}
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $order = Order::findOrFail($id);
+        $order->update($request->only(['status', 'payment_status']));
+
+        // ✅ OPTIONAL: send update to Telegram
+        TelegramService::sendStatusUpdate($order->load('user'));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Order updated successfully',
+            'data'    => $order
+        ]);
+    }
 }

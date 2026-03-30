@@ -17,8 +17,8 @@ class AuthController extends Controller
         $validate = Validator::make($request->all(),[
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
-            'phone_number' => 'nullable|string|max:20',
-            'address' => 'nullable|string|max:255',
+            'phone_number' => 'required|string|max:20',
+            'address' => 'required|string|max:255',
             'password'      => [
                 'required',
                 'confirmed',
@@ -45,14 +45,12 @@ class AuthController extends Controller
                 'password' => Hash::make($request->password),
                 'role' => 'user',      
             ]);
-            $token = $user->createToken('auth_token')->plainTextToken;
+            // $token = $user->createToken('auth_token')->plainTextToken;
             return response()->json([
                 'status'  => 'success',
                 'message' => 'User registered successfully',
-                'data'    => [
-                    'user'  => $user,
-                    'token' => $token
-                ]
+                'user'    => $user,  // No more 'data' wrapper
+                // 'token'   => $token, // No more 'data' wrapper
             ], 201);
         }catch(\Exception $e){
             return response()->json([
@@ -93,10 +91,8 @@ class AuthController extends Controller
             return response()->json([
                 'status'  => 'success',
                 'message' => 'User logged in successfully',
-                'data'    => [
                     'token' => $token,
                     'user'  => $user // profile_image_url is now automatically included!
-                ]
             ], 200);
 
         } catch (\Exception $e) {
@@ -109,7 +105,7 @@ class AuthController extends Controller
     //User logout
     public function logout(Request $request){
         try{
-            $request->user()->currentAccessToken()->delete();
+            $request->user()?->tokens()?->delete();
             return response()->json([
                 'status' => 'success',
                 'message' => 'User logged out successfully'

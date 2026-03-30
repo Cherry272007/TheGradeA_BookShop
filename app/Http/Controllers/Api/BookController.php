@@ -214,4 +214,53 @@ class BookController extends Controller
 
     return $query->paginate(10); // ប្រើ Paginate ដើម្បីកុំឱ្យទិន្នន័យមកច្រើនពេកនាំឱ្យយឺត
 }
+
+
+
+public function bestSellers(Request $request)
+{
+    $limit      = $request->query('limit', 10);   // default top 10
+    $categoryId = $request->query('category_id'); // optional
+    $from       = $request->query('from');        // optional start date
+    $to         = $request->query('to');          // optional end date
+
+    $cacheKey = "best_sellers_{$limit}_{$categoryId}_{$from}_{$to}";
+
+    $result = \Illuminate\Support\Facades\Cache::remember($cacheKey, now()->addMinutes(30), function () use ($limit, $categoryId, $from, $to) {
+
+        $query = \App\Models\OrderItem::select('book_id', \Illuminate\Support\Facades\DB::raw('SUM(quantity) as total_sold'))
+            ->with('book')
+            ->groupBy('book_id')
+            ->orderByDesc('total_sold');
+
+        if ($from && $to) {
+            $query->whereHas('order', function($q) use ($from, $to) {
+                $q->whereBetween('order_date', [$from, $to]);
+            });
+        }
+
+        if ($categoryId) {
+            $query->whereHas('book', function($q) use ($categoryId) {
+                $q->where('category_id', $categoryId);
+            });
+        }
+
+        return $query->take($limit)->get()->map(function ($item) {
+            return [
+                'id' => $item->book->id,
+                'title' => $item->book->title,
+                'author' => $item->book->author ?? null,
+                'price' => $item->book->price,
+                'total_sold' => $item->total_sold,
+                'cover_image' => $item->book->cover_image ?? null,
+                'category_id' => $item->book->category_id ?? null,
+            ];
+        });
+    });
+
+    return response()->json([
+        'success' => true,
+        'data' => $result
+    ]);
+}
 }
